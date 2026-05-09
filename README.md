@@ -1,75 +1,92 @@
 # ORCA — Open RF Converter & Adapter
 
-Gateway bidireccional open source que conecta **NUNU** (mensajería digital FSK sobre FM en VHF/UHF vía Quansheng UV-K5) con la red mesh **Meshtastic** (LoRa 868 MHz).
+Bidirectional gateway between the NUNU digital messaging protocol (FSK over FM on Quansheng UV-K5) and the Meshtastic LoRa mesh network.
 
-Un mensaje enviado desde un UV-K5 con firmware NUNU llega a cualquier nodo Meshtastic, y viceversa, sin modificar ninguno de los dos extremos.
+## The Problem
 
-## El problema
+Two digital mesh ecosystems that do not interoperate:
 
-Dos ecosistemas mesh digitales incomunicados:
+| Protocol | PHY | Frequency | Maturity |
+|----------|-----|-----------|----------|
+| **NUNU** | FSK over FM (BK4819) | VHF/UHF | Emerging, ham radio |
+| **Meshtastic** | LoRa | 868 MHz ISM | Mature, urban EU coverage |
 
-| Red | Medio | Frecuencia | Madurez |
-|-----|-------|-----------|---------|
-| **NUNU** | FSK sobre FM, BK4819 (UV-K5) | VHF/UHF | Emergente, radioaficionados |
-| **Meshtastic** | LoRa | 868 MHz ISM | Consolidada, ciudades UE |
+ORCA translates packets between both without modifying either endpoint.
 
-ORCA traduce protocolo entre ambos.
-
-## Arquitectura
+## System Architecture
 
 ```
-UV-K5 (NUNU FW) ──► Audio Kenwood 2.5mm ──► ADC/USB ──► nunu_decoder.py
-                                                          │
-                                                          ▼
-                                                    nunu_parser.py
-                                                          │
-                                                          ▼
-                                                    mesh_bridge.py
-                                                          │
-                                                          ▼
-                                               Heltec LoRa 32 V3 ◄──► Meshtastic mesh
+UV-K5 (NUNU FW) ──► Kenwood 2.5mm audio ──► ADC/USB ──► nunu_decoder.py
+                                                              │
+                                                              ▼
+                                                        nunu_parser.py
+                                                              │
+                                                              ▼
+                                                        mesh_bridge.py
+                                                              │
+                                                              ▼
+                                                   Heltec LoRa 32 V3 ◄──► Meshtastic mesh
 ```
 
-### Componentes
+### Layers
 
-- **nunu_decoder.py** — Captura audio PCM 44100 Hz, filtra y demodula FSK, detecta syncword `0x30 0x72 0x57 0x6C`
-- **nunu_parser.py** — Valida CRC (8 bytes), extrae payload, descarta corruptos
-- **mesh_bridge.py** — Routing: prefijo `@alias` → DM, sin prefijo → broadcast. Inyecta vía meshtastic-python
-- **capture.py** — Herramienta de captura de audio desde placa USB
+- **nunu_decoder.py** — PCM 44100 Hz capture, bandpass filter, FSK demodulation (Goertzel / zero-crossing), syncword detection (`0x30 0x72 0x57 0x6C`)
+- **nunu_parser.py** — CRC-8 validation, header type extraction, plaintext payload extraction
+- **mesh_bridge.py** — Routing logic (`@alias` / `@nodeid` → direct message, no prefix → broadcast), Meshtastic injection via `meshtastic` Python API
+- **capture.py** — Audio capture utility from USB soundcard
 
-### Paquete NUNU (56 bytes)
+### NUNU Packet (56 bytes)
 
-| Sync (4B) | Header (1B) | Payload (30B) | Nonce (13B) | CRC (8B) |
-|-----------|-------------|---------------|-------------|----------|
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 4 | Sync | `0x30 0x72 0x57 0x6C` |
+| 4 | 1 | Header | Type (bits 7-3), hop count (bits 2-0, max 7) |
+| 5 | 30 | Payload | Plaintext or ChaCha20 ciphertext |
+| 35 | 13 | Nonce | Encryption nonce |
+| 48 | 8 | CRC | Integrity check (discard on mismatch) |
 
-Header: tipo (bits 7-3) + hop count (bits 2-0, máx 7)
+Header types: `Plain text`, `Encrypted (ChaCha20)`, `Invalid`.
 
-## Estado
+## Status
 
-**Fase 1 — Decoder Python en PC** (en curso)
+**Phase 1 — Python decoder on PC** (in progress)
 
-- [x] Captura de audio desde USB soundcard
-- [ ] Demodulación FSK + syncword detection
-- [ ] Validación CRC + extracción payload
-- [ ] Bridge con Meshtastic
+- [x] Audio capture from USB soundcard (Kenwood → 2.5mm → PC)
+- [ ] FSK demodulation + syncword detection
+- [ ] CRC validation + payload extraction
+- [ ] Meshtastic bridge integration
 
-**Fase 2** — Puerto a C++ en Cardputer (ESP32-S3 + LoRa SPI)
+**Phase 2 — C++ native port to Cardputer** (ESP32-S3 + SPI LoRa)
 
-**Fase 3** — Hardware integrado: UV-K5 + Pi Zero 2W + Heltec LoRa en caja ABS
+**Phase 3 — Integrated hardware** (disassembled UV-K5 + Pi Zero 2W + Heltec LoRa V3, ABS enclosure)
 
-## Dependencias
+## Dependencies
 
 ```bash
 pip install sounddevice scipy numpy meshtastic pyserial flask
 ```
 
-## Referencias
+## Hardware Targets
 
-- [Firmware NUNU (kamilsss655)](https://github.com/kamilsss655/uv-k5-firmware-custom)
-- [ESPRI — Interfaz hardware Kenwood](https://github.com/kamilsss655/ESPRI)
+| Phase | Platform | Role |
+|-------|----------|------|
+| 1 | Mac + USB soundcard | Prototype / decoder dev |
+| 2 | Cardputer (ESP32-S3) | Standalone embedded gateway |
+| 3 | UV-K5 + Pi Zero + Heltec LoRa | Integrated field unit |
+
+## Regulatory
+
+- Callsign EA3JHL, Spanish amateur radio bands
+- Plaintext only (no ChaCha20) — RRAE compliant
+- LoRa 868 MHz ISM band (license-free, duty cycle < 1 %)
+
+## References
+
+- [uv-k5-firmware-custom (kamilsss655) — NUNU firmware](https://github.com/kamilsss655/uv-k5-firmware-custom)
+- [ESPRI — Kenwood interface hardware](https://github.com/kamilsss655/ESPRI)
 - [Meshtastic Python API](https://python.meshtastic.org)
-- BK4819 datasheet (público)
+- BK4819 datasheet (public PDF)
 
-## Licencia
+## License
 
-Open source. Operación bajo indicativo EA3JHL. Sin cifrado ChaCha20 — compatible con RRAE.
+Open source. Operation under EA3JHL.
