@@ -1,0 +1,7 @@
+sounddevice>=0.5
+scipy>=1.15
+numpy>=2.1
+matplotlib>=3.10
+meshtastic>=2.7
+pyserial>=3.5
+flask>=3.1
