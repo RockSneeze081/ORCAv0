@@ -76,7 +76,7 @@ pip install sounddevice scipy numpy meshtastic pyserial flask
 
 ## Regulatory
 
-- Callsign EA3JHL, Spanish amateur radio bands
+- Callsign required, Spanish amateur radio bands
 - Plaintext only (no ChaCha20) — RRAE compliant
 - LoRa 868 MHz ISM band (license-free, duty cycle < 1 %)
 
@@ -89,4 +89,4 @@ pip install sounddevice scipy numpy meshtastic pyserial flask
 
 ## License
 
-Open source. Operation under EA3JHL.
+Open source. Operation under registered amateur radio callsign.
