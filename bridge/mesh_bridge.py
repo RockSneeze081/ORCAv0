@@ -66,13 +66,39 @@ def resolve_destination(target: str, aliases: dict) -> Optional[str]:
     return aliases.get(target)
 
 
+def _safe_send(interface, message: str, destination: str, label: str) -> bool:
+    """Call interface.sendText, but don't let a bad destination take the
+    whole pipeline down with it.
+
+    destination can come straight from a NUNU message's "@target" text --
+    i.e. from whoever is transmitting, not from us. The real
+    meshtastic.SerialInterface treats any string >=8 chars as a hex node
+    id and does `int(destinationId[-8:], 16)` with no guard at all: a
+    message like "@!zzzzzzzz hi" reaches that unguarded parse and raises
+    ValueError. Some of its other invalid-destination branches call
+    meshtastic's own our_exit(), which is sys.exit() under the hood --
+    that's SystemExit, not Exception, so it has to be caught explicitly
+    or it kills the whole process (the live-capture loop, or an offline
+    batch partway through). Both are real for a protocol decoded from
+    RF: malformed content here is normal, not a rare edge case, whether
+    from noise or someone deliberately sending garbage.
+    """
+    try:
+        interface.sendText(message, destinationId=destination)
+    except (Exception, SystemExit) as exc:
+        logger.warning("send to %s (%s) failed, dropping: %s", label, destination, exc)
+        return False
+    return True
+
+
 def route_message(text: str, interface, aliases: Optional[dict] = None) -> bool:
     """Route one decoded NUNU message onto the Meshtastic mesh.
 
-    Returns True if a send was attempted, False if it was dropped. An
-    unresolved @alias is dropped rather than silently broadcast -- a
-    message addressed to someone specific shouldn't leak to the whole
-    mesh just because the alias table is stale or has a typo.
+    Returns True if the message was handed to the interface successfully,
+    False if it was dropped (empty body, unresolved alias) or the send
+    itself failed. An unresolved @alias is dropped rather than silently
+    broadcast -- a message addressed to someone specific shouldn't leak
+    to the whole mesh just because the alias table is stale or has a typo.
     """
     if aliases is None:
         aliases = load_aliases()
@@ -83,15 +109,17 @@ def route_message(text: str, interface, aliases: Optional[dict] = None) -> bool:
         return False
 
     if target is None:
-        interface.sendText(message, destinationId=BROADCAST_ADDR)
-        logger.info("broadcast: %r", message)
-        return True
+        sent = _safe_send(interface, message, BROADCAST_ADDR, "broadcast")
+        if sent:
+            logger.info("broadcast: %r", message)
+        return sent
 
     destination = resolve_destination(target, aliases)
     if destination is None:
         logger.warning("unknown alias %r, dropping message: %r", target, text)
         return False
 
-    interface.sendText(message, destinationId=destination)
-    logger.info("direct to %s (%s): %r", target, destination, message)
-    return True
+    sent = _safe_send(interface, message, destination, target)
+    if sent:
+        logger.info("direct to %s (%s): %r", target, destination, message)
+    return sent

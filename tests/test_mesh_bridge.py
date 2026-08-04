@@ -22,6 +22,23 @@ class FakeInterface:
         self.sent.append((text, destinationId))
 
 
+class RaisingInterface:
+    """Simulates a real meshtastic interface choking on a bad destinationId.
+
+    meshtastic.MeshInterface._sendPacket does `int(destinationId[-8:], 16)`
+    for any >=8-char string with no try/except -- ValueError on garbage
+    hex. Some of its other failure branches call meshtastic's own
+    our_exit(), which is sys.exit() under the hood -- SystemExit, not
+    Exception. Both are simulated here since _safe_send has to catch both.
+    """
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def sendText(self, text, destinationId):
+        raise self._exc
+
+
 def test_parse_recipient_no_prefix():
     assert parse_recipient("hello mesh") == (None, "hello mesh")
 
@@ -74,6 +91,28 @@ def test_route_message_empty_body_dropped():
     iface = FakeInterface()
     assert route_message("@ea3jhl", iface, aliases={"ea3jhl": "!a1b2c3d4"}) is False
     assert iface.sent == []
+
+
+def test_route_message_broadcast_survives_value_error():
+    """A malformed "@!<garbage>" destination is attacker/sender-controlled
+    -- it comes straight from the transmitted NUNU message -- so this has
+    to degrade to "dropped", not crash the caller's loop."""
+    iface = RaisingInterface(ValueError("invalid literal for int() with base 16: 'zzzzzzzz'"))
+    assert route_message("hello mesh", iface, aliases={}) is False
+
+
+def test_route_message_direct_survives_system_exit():
+    """meshtastic's our_exit() helper is sys.exit() under the hood --
+    SystemExit, not Exception -- so it has to be caught explicitly or it
+    kills the whole process, not just this one send."""
+    iface = RaisingInterface(SystemExit(1))
+    aliases = {"ea3jhl": "!zzzzzzzz"}  # a bad value, e.g. from a typo'd manage_aliases.py add
+    assert route_message("@ea3jhl hello", iface, aliases) is False
+
+
+def test_route_message_bad_raw_nodeid_survives_value_error():
+    iface = RaisingInterface(ValueError("bad hex"))
+    assert route_message("@!zzzzzzzz message", iface, aliases={}) is False
 
 
 def test_load_aliases_missing_file_returns_empty_dict(tmp_path):
