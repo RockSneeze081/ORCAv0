@@ -41,6 +41,7 @@ UV-K5 (NUNU FW) ──► Kenwood 2.5mm audio ──► ADC/USB ──► nunu_d
 - **manage_aliases.py** — CLI for `alias_store.json` (add/remove/list) instead of hand-editing JSON
 - **capture.py** — Audio capture utility from USB soundcard
 - **main.py** — orchestrates the above; see `python main.py --help`
+- **web.py** — minimal browser UI: view the alias table, upload a WAV and see what would be decoded/routed (never sends to a real radio); `python web.py`
 
 Full protocol reference: [docs/nunu_protocol.md](docs/nunu_protocol.md).
 Wiring notes: [docs/wiring.md](docs/wiring.md).
@@ -67,7 +68,8 @@ doesn't drift out of sync.
 - [x] Mesh routing logic (`mesh_bridge.py`) + alias management CLI
 - [x] FSK demodulation + clock recovery (`nunu_decoder.py`) — **validated only against its own synthetic signal (`tests/synth_nunu.py`), not real UV-K5 audio**
 - [x] Pipeline orchestration (`main.py`, offline + live modes) — offline path exercised end-to-end, live path unexercised (no audio device in dev/CI)
-- [x] Test suite (38 tests) + CI running it on every push
+- [x] Test suite (57 tests) + CI running it on every push
+- [x] Minimal web UI (`web.py`) — alias view + WAV-upload decode preview
 - [ ] End-to-end validation with real hardware — **the actual blocker**; `tests/samples/` has zero real captures. See [docs/architecture.md](docs/architecture.md) "Test strategy."
 
 **Phase 2 — C++ native port to Cardputer** (ESP32-S3 + SPI LoRa) — not started; see docs/architecture.md for why this is waiting on Phase 1 hardware validation first
@@ -81,8 +83,8 @@ pip install -r requirements.txt
 ```
 
 (`sounddevice`, `scipy`, `numpy`, `matplotlib` for capture/DSP; `meshtastic`,
-`pyserial` for the mesh side; `flask` reserved for a future web UI;
-`pytest` for the test suite.)
+`pyserial` for the mesh side; `flask` for the web UI; `pytest` for the
+test suite.)
 
 ## Development
 
@@ -91,6 +93,7 @@ python -m pytest tests/ -v                                   # run the test suit
 python main.py --input tests/samples/some_capture.wav --dry-run -v   # try the pipeline
 python main.py --list-devices                                # find your soundcard's device index
 python bridge/manage_aliases.py list                          # inspect the alias table
+python web.py                                                 # browser UI at http://127.0.0.1:5000
 ```
 
 ## Hardware Targets

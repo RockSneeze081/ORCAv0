@@ -99,6 +99,7 @@ decoded plaintext payload, not the NUNU header.
 ```
 ORCAv0/
 ├── main.py                 # pipeline entry point: decoder -> parser -> bridge
+├── web.py                  # minimal Flask UI: alias view + WAV-upload decode preview
 ├── decoder/
 │   ├── nunu_decoder.py     # FSK demod + clock recovery, decode() is the entry point
 │   ├── nunu_parser.py      # framing/packet parsing, decoupled from how bytes arrived
@@ -122,6 +123,8 @@ ORCAv0/
 │   ├── test_nunu_decoder.py
 │   ├── test_mesh_bridge.py
 │   ├── test_main.py
+│   ├── test_manage_aliases.py
+│   ├── test_web.py
 │   └── samples/             # Real NUNU traffic WAV captures -- still EMPTY, see below
 ├── .github/workflows/test.yml
 ├── requirements.txt
