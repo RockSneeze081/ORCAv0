@@ -6,14 +6,16 @@ runnable entry point, per README's system architecture diagram. Two
 input modes:
 
   --input FILE.wav   Offline: decode a WAV file once, route what's found,
-                      exit. This is the only mode that's actually been
-                      exercised (against tests/synth_nunu.py output and
-                      real WAV files) -- it's the recommended way to try
-                      this out before trusting the live path.
+                      exit. Exercised end-to-end (tests/synth_nunu.py
+                      output, real WAV files) -- the recommended way to
+                      try this out before trusting the live path.
   --device [N]        Live: capture continuously from a sound device,
                       decode a rolling window, route new packets as they
-                      appear. Untested against a real UV-K5 (see
-                      AGENTS.md) -- exercise --input first.
+                      appear. Its core logic (buffer window, TTL dedup --
+                      see _drain_and_route/_append_to_buffer) is unit
+                      tested; the sounddevice plumbing around it and any
+                      real UV-K5 signal are not (see AGENTS.md) --
+                      exercise --input first.
 
 --dry-run prints routing decisions instead of touching a real Meshtastic
 radio. Useful for testing without a Heltec/T-Beam attached, and right

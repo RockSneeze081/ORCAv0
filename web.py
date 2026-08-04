@@ -188,4 +188,10 @@ def index():
 
 
 if __name__ == "__main__":
+    # debug=True is deliberate for a local-only dev tool (auto-reload,
+    # helpful tracebacks) -- but it also enables Werkzeug's interactive
+    # debugger, which is arbitrary code execution if this is ever reachable
+    # from anywhere but localhost. No host= is set (defaults to 127.0.0.1);
+    # if that ever changes to something like host="0.0.0.0" for LAN access,
+    # debug must come off first.
     app.run(debug=True)
