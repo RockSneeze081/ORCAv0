@@ -3,7 +3,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "decoder"))
 
-from nunu_decoder import decode
+import numpy as np
+import pytest
+
+from nunu_decoder import MIN_FRAME_SAMPLES, decode
 from nunu_parser import PacketType, build_body
 from synth_nunu import synthesize_packet
 
@@ -45,6 +48,28 @@ def test_decode_ignores_pure_noise():
     packets = decode(noise)
 
     assert packets == []
+
+
+@pytest.mark.parametrize(
+    "n_samples",
+    [0, 1, 10, 26, MIN_FRAME_SAMPLES - 1],
+)
+def test_decode_returns_empty_for_buffer_too_short_for_one_frame(n_samples):
+    """Regression test: scipy's sosfiltfilt raises ValueError on an input
+    shorter than its padlen (~27 samples for the current filter) -- which
+    includes the empty-buffer case. A truncated or empty WAV file is a
+    normal thing for run_offline to be handed, not exceptional, so this
+    must return [] rather than propagate a crash."""
+    audio = np.zeros(n_samples, dtype=np.float32)
+
+    assert decode(audio) == []
+
+
+def test_decode_handles_nan_and_inf_without_crashing():
+    """Not a normal WAV, but scipy's filter doesn't raise on non-finite
+    input either -- garbage in, empty result out, not a crash."""
+    assert decode(np.full(44100, np.nan, dtype=np.float32)) == []
+    assert decode(np.full(44100, np.inf, dtype=np.float32)) == []
 
 
 def test_decode_recovers_clock_at_arbitrary_start_offset():

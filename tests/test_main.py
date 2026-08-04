@@ -100,6 +100,23 @@ def test_run_offline_no_packets_in_pure_noise(tmp_path):
     assert iface.sent == []
 
 
+def test_run_offline_does_not_crash_on_truncated_wav(tmp_path):
+    """Regression test: a WAV with only a handful of samples used to
+    crash decode() (scipy's filter needs a minimum length); a truncated
+    download or an accidentally-empty file is a normal thing to hand
+    --input, not an exceptional one."""
+    from scipy.io.wavfile import write as write_wav
+
+    wav_path = tmp_path / "truncated.wav"
+    write_wav(str(wav_path), 44100, np.zeros(5, dtype=np.int16))
+    iface = FakeInterface()
+
+    count = main.run_offline(wav_path, iface, aliases={})
+
+    assert count == 0
+    assert iface.sent == []
+
+
 def test_main_requires_meshtastic_unless_dry_run(monkeypatch, tmp_path, capsys):
     wav_path = tmp_path / "x.wav"
     _write_synthetic_wav(wav_path, "irrelevant")

@@ -70,6 +70,15 @@ MARK_HZ = 1200  # bit 0, ASSUMPTION 2
 SPACE_HZ = 1800  # bit 1
 SAMPLES_PER_BIT = SAMPLE_RATE / BAUD  # 36.75 -- non-integer, see _bit_windows
 
+# A buffer shorter than one full sync+body frame can never contain a
+# complete packet, so decode() bails out before filtering rather than
+# handing scipy's sosfiltfilt a too-short array -- it raises ValueError
+# below its padlen (order-dependent, ~27 samples for the current filter),
+# which includes the empty-buffer case. Gating on "long enough to matter"
+# rather than "long enough to not crash the filter" means this stays
+# correct even if the filter design changes later.
+MIN_FRAME_SAMPLES = int((len(SYNC_WORD) + BODY_LEN) * 8 * SAMPLES_PER_BIT)
+
 # Empirically, sync detection holds for roughly +-3 samples out of ~37 (see
 # module docstring) -- 8 evenly spaced candidates give each a good chance of
 # landing within that window without the search cost exploding.
@@ -252,7 +261,15 @@ def decode(
     start position falls within one bit period of each other are treated
     as the same underlying packet, and only the highest-confidence one
     in each group is kept.
+
+    Returns [] for a buffer too short to contain a full frame -- see
+    MIN_FRAME_SAMPLES -- rather than raising. A truncated or empty WAV
+    file is a normal thing to hand this (run_offline doesn't otherwise
+    guard against it), not an exceptional one.
     """
+    if len(audio) < MIN_FRAME_SAMPLES:
+        return []
+
     filtered = _bandpass(audio, fs)
     step = SAMPLES_PER_BIT / phase_search_steps
     sync_bit_len = len(_SYNC_BITS)
