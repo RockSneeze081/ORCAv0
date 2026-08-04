@@ -38,6 +38,14 @@ def load_aliases(path: Path = DEFAULT_ALIAS_STORE) -> dict:
         return json.load(f)
 
 
+def save_aliases(aliases: dict, path: Path = DEFAULT_ALIAS_STORE) -> None:
+    """Write the alias table back out, sorted for a stable, reviewable diff."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(dict(sorted(aliases.items())), f, indent=2)
+        f.write("\n")
+
+
 def parse_recipient(text: str) -> tuple[Optional[str], str]:
     """Split "@target rest" into (target, rest); (None, text) if no @-prefix.
 

@@ -67,6 +67,25 @@ def test_decode_recovers_clock_at_arbitrary_start_offset():
         assert packets[0].text() == "clock recovery test"
 
 
+def test_decode_finds_packet_in_realistic_multi_second_capture():
+    """Closer to the real Phase-1 use case than the other tests: a several
+    -second buffer with noise before and after the packet, at a position
+    the decoder has to find rather than one handed to it at the start."""
+    import numpy as np
+
+    body = build_body(PacketType.MESSAGE, b"timing test message")
+    packet_audio = synthesize_packet(body)
+    rng = np.random.default_rng(3)
+    pre = (rng.standard_normal(int(1.7 * 44100)) * 0.05).astype(np.float32)
+    post = (rng.standard_normal(int(2.9 * 44100)) * 0.05).astype(np.float32)
+    audio = np.concatenate([pre, packet_audio, post])
+
+    packets = decode(audio)
+
+    assert len(packets) == 1
+    assert packets[0].text() == "timing test message"
+
+
 def test_round_trip_survives_moderate_noise():
     """Regression guard, not a claim about real-world SNR margin -- the
     real margin can only come from a real capture. Signal amplitude is
