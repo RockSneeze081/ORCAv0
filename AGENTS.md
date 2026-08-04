@@ -47,13 +47,23 @@ Data after sync is **44 bytes** (1+30+13), not 56 — do not allocate an
 
 Baud rate / bit timing not yet confirmed — needs BK4819 datasheet or a real
 capture. Don't hardcode a guessed value into the decoder without flagging it.
+Weaker evidence than it looks: full git history shows this enum used to be
+named `ModemBaudRate` with each value's numeric suffix exactly equal to its
+tone frequency in Hz (100/200/300/450/550/700/1200 all confirmed) -- so
+"1200" may denote tone frequency by this codebase's own naming convention,
+not bits/second. See docs/nunu_protocol.md for the full derivation.
 
-### Open question: mesh hopping
-Firmware's own README advertises "message hopping mesh network" but no
-hop-count/TTL/relay logic was found in `app/messenger.c` on the default
-branch. May be flood-rebroadcast, may live elsewhere, may be unmerged.
-Does not block `mesh_bridge.py` — its `@alias`/`@nodeid` routing reads the
-decoded plaintext payload, not the NUNU header.
+### Mesh hopping: documented, not in the code
+Firmware's README and wiki describe a 3-bit hop-count field (max 7 hops) --
+and the wiki also describes the 56-byte/8-byte-CRC packet ORCA's docs
+originally (wrongly) assumed, suggesting that's where the original error
+came from. Searched the *entire* commit history of app/messenger.c and
+messenger.h (git log --all -p, not just HEAD): zero matches for hop-count
+or TTL/relay logic, ever. Likely a designed-but-unshipped feature (latest
+release tag is v.20.5; README claims hopping is "available in v.21.0",
+which doesn't exist as a release yet). Does not block mesh_bridge.py --
+its `@alias`/`@nodeid` routing reads the decoded plaintext payload, not
+the NUNU header. See docs/nunu_protocol.md "Mesh hopping" for detail.
 
 ## Audio Pipeline (implemented in decoder/nunu_decoder.py)
 - Input: PCM 44100 Hz, mono, from USB soundcard (via Kenwood 2.5mm jack on UV-K5)

@@ -7,10 +7,18 @@ specifically `app/messenger.c`, `app/messenger.h`, `driver/crc.c`,
 paraphrase of it. Earlier drafts of ORCA's own docs (README.md,
 AGENTS.md) got three things about this protocol wrong before this
 verification pass; this document is the corrected, detailed version they
-now summarize. Where something below is inferred rather than read
-directly from source, it says so explicitly — treat those as working
-assumptions, not fact, until checked against a real capture (see
-`tests/samples/`, currently empty).
+now summarize.
+
+Extended the same day with a second pass through the *entire* commit
+history of the messenger source (not just current HEAD), which
+confirmed the no-CRC and no-hop-count findings even more strongly and
+also explained where the original wrong assumptions likely came from:
+the project's own wiki describes a 56-byte/CRC/hop-count design that
+was seemingly never implemented, or not in the files this search
+covered (see "Mesh hopping" below). Where something below is inferred
+rather than read directly from source, it says so explicitly — treat
+those as working assumptions, not fact, until checked against a real
+capture (see `tests/samples/`, currently empty).
 
 ## Physical layer
 
@@ -49,6 +57,34 @@ name and indirectly supported by the tone choice: at 1200 baud and
 the space tone (1800 Hz) exactly 1.5 — a clean small-integer relationship
 that's the classic reason real FFSK schemes pick their tones relative to
 their baud rate. Suggestive, not proof.
+
+Dug into the full git history (not just current HEAD) for more evidence
+and found a real complication, not a confirmation: this parameter used
+to be its own enum, literally named `ModemBaudRate` (commit `43e8400`,
+"baud settings"), with values `MOD_BAUD_100/200/300/1200`. Converting
+each variant's `TONE2_FREQ` register through `scale_freq()`:
+
+| Enum value | Register | Hz |
+|---|---|---|
+| `MOD_BAUD_100` | `0x408` | 99.96 |
+| `MOD_BAUD_200` | `0x811` | 200.01 |
+| `MOD_BAUD_300` | `0xC19` | 299.97 |
+| `MOD_BAUD_1200` | `0x3065` | 1199.97 |
+
+Every variant's numeric suffix equals its tone frequency in Hz, exactly
+— consistent across all four, and later reconfirmed for 450/550/700
+when the enum was renamed (commit `8c69677`, "working fsk baud rates")
+and eventually collapsed into today's `ModemModulation` (commit
+`e2211d7`, "remove baud rate", which deleted the separate baud
+dimension entirely along with `MOD_BAUD_550`). So "1200" in
+`MOD_AFSK_1200` is confirmed, by the developer's own naming pattern
+across the whole history, to denote **tone frequency**, not
+bits-per-second — which means the "FFSK 1200" naming argument above is
+weaker evidence than it looked: the "1200" might just be inherited from
+"this variant uses a 1200 Hz tone," not "this runs at 1200 baud" at
+all. Net effect: baud rate is *less* certain than the previous version
+of this doc implied, not more. Still the working assumption; still
+needs a real capture to confirm.
 
 ## Sync word
 
@@ -135,6 +171,12 @@ independent pieces of evidence, both from `app/messenger.c`:
    driver turns up nothing. It's used elsewhere in the firmware (e.g.
    flash/EEPROM integrity), never for over-the-air messenger packets.
 
+Checked across the *entire* commit history of `messenger.c`/`messenger.h`
+(`git log --all -p`), not just the current snapshot: every version of
+the "disable CRC" comment and register write is identical back to when
+FSK config was first added. CRC has never been enabled for messenger
+packets at any point in this repo's history.
+
 So there is **no integrity check of any kind** on a NUNU packet, whether
 plaintext or encrypted (see below — the encryption isn't authenticated
 either). A receiver has exactly two framing signals to trust a packet:
@@ -175,26 +217,39 @@ question were moot. `nunu_parser.NunuPacket.is_encrypted` exists so ORCA
 can recognize and skip encrypted traffic rather than garble it into the
 mesh as if it were plaintext.
 
-## Mesh hopping — open question
+## Mesh hopping — documented, but not in the code
 
 The firmware's own top-level README advertises "message hopping mesh
 network functionality which allows to extend the range... via
-intermediate stations." No hop-count field, TTL, or relay/rebroadcast
-logic was found anywhere in `app/messenger.c` on the branch checked here
-(`git log -1 -- app/messenger.c` → `5be5b19`, a docs-only merge commit).
-Possibilities, unresolved:
+intermediate stations," and the project wiki's
+["Mesh network"](https://github.com/kamilsss655/uv-k5-firmware-custom/wiki/43-%E2%80%90-Mesh-network)
+page is specific about it: a 3-bit hop-count field (max 7 hops) and a
+"give and take" rule where "users can only request that their messages
+be hopped if they contribute to the network by hopping messages for
+others." That wiki page also describes the packet as 56 bytes with an
+8-byte CRC — i.e. the same design ORCA's own earlier docs wrongly
+assumed, apparently from reading this same wiki rather than the code.
 
-- Flood rebroadcast with no hop limit (every node that hears a packet
-  repeats it) — would explain the "no hop count needed" header design,
-  at the cost of no loop prevention that's visible in this file.
-  Actually got same-message dedup would need to happen somewhere.
-  This is speculation, not "the answer."
-- Implemented in a part of the tree not searched here.
-- A feature described ahead of (or after) the code that implements it.
+Searched for any trace of this across the *entire* commit history of
+`app/messenger.c` and `app/messenger.h` (`git log --all -p`, every
+commit that ever touched either file, not just current HEAD): zero
+matches for `hop_count`, `hopCount`, `HOP_COUNT`, or any TTL/relay
+logic. It has never existed in these two files, as far as the full
+history shows. The header has room in principle (it's a full byte, only
+4 of 256 values used), but nothing here reads or writes hop-count bits.
 
-Doesn't block ORCA: `mesh_bridge.py`'s own `@alias`/`@nodeid` routing
-operates on the *decoded plaintext payload*, independent of whatever the
-NUNU header does or doesn't carry.
+Best-supported conclusion: this is documentation of a designed-but-
+unshipped feature (or shipped somewhere this search didn't cover), not
+a description of what `app/messenger.c` actually does. The README's
+"available in v.21.0" claim is consistent with this — the latest
+released tag as of this check is `v.20.5` (`git ls-remote --tags`), so
+v.21.0 doesn't exist as a release yet; whatever the demo videos show
+may be from an unmerged branch. Not chasing this further without a
+reason to believe it changes anything ORCA depends on.
+
+Doesn't block ORCA either way: `mesh_bridge.py`'s own `@alias`/`@nodeid`
+routing operates on the *decoded plaintext payload*, independent of
+whatever the NUNU header does or doesn't carry.
 
 ## Regulatory (RRAE, Spain)
 
