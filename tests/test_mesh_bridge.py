@@ -1,9 +1,17 @@
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bridge"))
 
-from mesh_bridge import BROADCAST_ADDR, parse_recipient, resolve_destination, route_message
+from mesh_bridge import (
+    BROADCAST_ADDR,
+    load_aliases,
+    parse_recipient,
+    resolve_destination,
+    route_message,
+    save_aliases,
+)
 
 
 class FakeInterface:
@@ -66,3 +74,33 @@ def test_route_message_empty_body_dropped():
     iface = FakeInterface()
     assert route_message("@ea3jhl", iface, aliases={"ea3jhl": "!a1b2c3d4"}) is False
     assert iface.sent == []
+
+
+def test_load_aliases_missing_file_returns_empty_dict(tmp_path):
+    assert load_aliases(tmp_path / "does_not_exist.json") == {}
+
+
+def test_save_then_load_round_trip(tmp_path):
+    path = tmp_path / "alias_store.json"
+    aliases = {"ea3jhl": "!a1b2c3d4", "repeater1": "!deadbeef"}
+
+    save_aliases(aliases, path)
+
+    assert load_aliases(path) == aliases
+
+
+def test_save_aliases_creates_parent_directories(tmp_path):
+    path = tmp_path / "nested" / "dir" / "alias_store.json"
+
+    save_aliases({"x": "!11111111"}, path)
+
+    assert path.exists()
+    assert load_aliases(path) == {"x": "!11111111"}
+
+
+def test_save_aliases_output_is_sorted_and_stable(tmp_path):
+    path = tmp_path / "alias_store.json"
+
+    save_aliases({"zulu": "!2", "alpha": "!1"}, path)
+
+    assert list(json.loads(path.read_text()).keys()) == ["alpha", "zulu"]

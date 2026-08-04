@@ -7,7 +7,6 @@ import pytest
 from nunu_parser import (
     BODY_LEN,
     SYNC_WORD,
-    NunuPacket,
     ParseError,
     PacketType,
     build_body,
