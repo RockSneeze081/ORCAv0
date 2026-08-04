@@ -69,6 +69,25 @@ def test_upload_broadcast_message_routes_ok(client):
     assert b"-&gt; ^all" in resp.data or b"-> ^all" in resp.data
 
 
+def test_upload_html_in_payload_is_escaped_not_injected(client):
+    """NUNU payload text is attacker-controlled -- it's whatever the
+    transmitting radio sent. Confirms Flask/Jinja's default autoescaping
+    actually applies here (render_template_string uses the app's Jinja
+    env, which escapes by default) rather than assuming it does; a
+    payload containing markup must not appear as live HTML in the
+    response, or displaying decoded packets would be a stored-XSS vector."""
+    wav = _wav_bytes("<script>alert(1)</script>")
+
+    resp = client.post(
+        "/",
+        data={"wav": (io.BytesIO(wav), "capture.wav")},
+        content_type="multipart/form-data",
+    )
+
+    assert b"<script>alert(1)</script>" not in resp.data
+    assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in resp.data
+
+
 def test_upload_unknown_alias_shows_dropped(client):
     wav = _wav_bytes("@ghost hello")
 
