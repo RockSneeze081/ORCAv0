@@ -91,6 +91,38 @@ def run_offline(wav_path: Path, interface, aliases: dict) -> int:
     return len(packets)
 
 
+def _append_to_buffer(buffer: np.ndarray, new_samples: np.ndarray, max_samples: int) -> np.ndarray:
+    """Append and trim to a rolling window, oldest samples dropped first."""
+    return np.concatenate([buffer, new_samples])[-max_samples:]
+
+
+def _drain_and_route(
+    buffer: np.ndarray, seen: dict, now: float, seen_ttl: float, interface, aliases: dict
+) -> int:
+    """One decode+dedupe+route pass over the current rolling buffer.
+
+    Mutates `seen` in place: expires entries older than seen_ttl, then
+    records a fresh timestamp for every packet routed this pass. Split
+    out from run_live() so this -- the actual interesting logic, as
+    opposed to the sounddevice plumbing around it -- is testable without
+    an infinite loop or a real/mocked audio device.
+
+    Returns how many packets were routed (not just seen) this pass.
+    """
+    for key in [k for k, t in seen.items() if now - t > seen_ttl]:
+        del seen[key]
+
+    routed = 0
+    for packet in decode(buffer):
+        fingerprint = _packet_fingerprint(packet)
+        if fingerprint in seen:
+            continue
+        seen[fingerprint] = now
+        route_packet(packet, interface, aliases)
+        routed += 1
+    return routed
+
+
 def run_live(
     device: Optional[int],
     interface,
@@ -105,6 +137,7 @@ def run_live(
     audio (and therefore the same packet) is decoded repeatedly for as
     long as it's still inside the rolling buffer -- without that, one
     real transmission would get routed to the mesh several times over.
+    See _drain_and_route for that logic in isolation.
     """
     import sounddevice as sd
 
@@ -117,7 +150,7 @@ def run_live(
         nonlocal buffer
         if status:
             logger.warning("audio status: %s", status)
-        buffer = np.concatenate([buffer, indata[:, 0]])[-max_samples:]
+        buffer = _append_to_buffer(buffer, indata[:, 0], max_samples)
 
     logger.info(
         "listening on device %s (Ctrl+C to stop)...",
@@ -128,17 +161,7 @@ def run_live(
             time.sleep(poll_seconds)
             if len(buffer) < SAMPLE_RATE:
                 continue  # not enough audio yet for even a short packet
-
-            now = time.time()
-            for key in [k for k, t in seen.items() if now - t > seen_ttl]:
-                del seen[key]
-
-            for packet in decode(buffer.copy()):
-                fingerprint = _packet_fingerprint(packet)
-                if fingerprint in seen:
-                    continue
-                seen[fingerprint] = now
-                route_packet(packet, interface, aliases)
+            _drain_and_route(buffer.copy(), seen, time.time(), seen_ttl, interface, aliases)
 
 
 def build_interface(dry_run: bool, connection: Optional[str]):

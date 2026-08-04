@@ -3,11 +3,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "decoder"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bridge"))
 
 import numpy as np
 import pytest
 
 import main
+from mesh_bridge import BROADCAST_ADDR
 from nunu_parser import NunuPacket, PacketType, build_body
 from synth_nunu import synthesize_packet
 
@@ -119,3 +121,70 @@ def test_main_dry_run_offline_end_to_end(monkeypatch, tmp_path, capsys):
 
     assert exit_code == 0
     assert "cq cq de ea3jhl" in capsys.readouterr().out
+
+
+def test_append_to_buffer_keeps_everything_under_limit():
+    buffer = np.array([1.0, 2.0], dtype=np.float32)
+    result = main._append_to_buffer(buffer, np.array([3.0, 4.0], dtype=np.float32), max_samples=10)
+    np.testing.assert_array_equal(result, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_append_to_buffer_trims_oldest_samples_first():
+    buffer = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    result = main._append_to_buffer(buffer, np.array([4.0, 5.0], dtype=np.float32), max_samples=4)
+    np.testing.assert_array_equal(result, [2.0, 3.0, 4.0, 5.0])
+
+
+def _wav_audio(text: str) -> np.ndarray:
+    body = build_body(PacketType.MESSAGE, text.encode("ascii"))
+    return synthesize_packet(body)
+
+
+def test_drain_and_route_routes_new_packet():
+    buffer = _wav_audio("cq cq de ea3jhl")
+    iface = FakeInterface()
+    seen = {}
+
+    routed = main._drain_and_route(buffer, seen, now=1000.0, seen_ttl=10.0, interface=iface, aliases={})
+
+    assert routed == 1
+    assert iface.sent == [("cq cq de ea3jhl", BROADCAST_ADDR)]
+    assert len(seen) == 1
+
+
+def test_drain_and_route_does_not_reroute_within_ttl():
+    buffer = _wav_audio("repeated message")
+    iface = FakeInterface()
+    seen = {}
+    main._drain_and_route(buffer, seen, now=1000.0, seen_ttl=10.0, interface=iface, aliases={})
+
+    routed_again = main._drain_and_route(
+        buffer, seen, now=1005.0, seen_ttl=10.0, interface=iface, aliases={}
+    )
+
+    assert routed_again == 0
+    assert len(iface.sent) == 1  # still just the one send from the first pass
+
+
+def test_drain_and_route_reroutes_after_ttl_expires():
+    buffer = _wav_audio("repeated message")
+    iface = FakeInterface()
+    seen = {}
+    main._drain_and_route(buffer, seen, now=1000.0, seen_ttl=10.0, interface=iface, aliases={})
+
+    routed_later = main._drain_and_route(
+        buffer, seen, now=1011.0, seen_ttl=10.0, interface=iface, aliases={}
+    )
+
+    assert routed_later == 1
+    assert len(iface.sent) == 2
+
+
+def test_drain_and_route_returns_zero_for_silence():
+    buffer = np.zeros(44100, dtype=np.float32)
+    iface = FakeInterface()
+
+    routed = main._drain_and_route(buffer, {}, now=1000.0, seen_ttl=10.0, interface=iface, aliases={})
+
+    assert routed == 0
+    assert iface.sent == []
