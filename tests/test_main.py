@@ -117,6 +117,30 @@ def test_run_offline_does_not_crash_on_truncated_wav(tmp_path):
     assert iface.sent == []
 
 
+def test_run_offline_missing_file_raises_runtime_error(tmp_path):
+    with pytest.raises(RuntimeError, match="couldn't read"):
+        main.run_offline(tmp_path / "does_not_exist.wav", FakeInterface(), aliases={})
+
+
+def test_run_offline_non_wav_file_raises_runtime_error(tmp_path):
+    not_a_wav = tmp_path / "not_a_wav.wav"
+    not_a_wav.write_text("this is definitely not a WAV file")
+
+    with pytest.raises(RuntimeError, match="couldn't read"):
+        main.run_offline(not_a_wav, FakeInterface(), aliases={})
+
+
+def test_main_missing_input_file_exits_cleanly_not_a_traceback(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(
+        sys, "argv", ["main.py", "--input", str(tmp_path / "ghost.wav"), "--dry-run"]
+    )
+
+    exit_code = main.main()
+
+    assert exit_code == 1
+    assert "couldn't read" in caplog.text
+
+
 def test_main_requires_meshtastic_unless_dry_run(monkeypatch, tmp_path, capsys):
     wav_path = tmp_path / "x.wav"
     _write_synthetic_wav(wav_path, "irrelevant")

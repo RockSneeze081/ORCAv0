@@ -76,7 +76,15 @@ def route_packet(packet: NunuPacket, interface, aliases: dict) -> None:
 def run_offline(wav_path: Path, interface, aliases: dict) -> int:
     from scipy.io import wavfile
 
-    fs, audio = wavfile.read(wav_path)
+    try:
+        fs, audio = wavfile.read(wav_path)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        # Scoped to the read itself, not a blanket except around this whole
+        # function -- a real bug in decode()/route_packet() further down
+        # should still surface as a normal traceback, not get relabeled as
+        # a file problem it isn't.
+        raise RuntimeError(f"couldn't read {wav_path} as a WAV file: {exc}") from exc
+
     if audio.ndim > 1:
         audio = audio[:, 0]  # first channel only
     if np.issubdtype(audio.dtype, np.integer):
@@ -230,6 +238,9 @@ def main() -> int:
         else:
             device = None if args.device in (None, -1) else args.device
             run_live(device, interface, aliases)
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        return 1
     finally:
         if not args.dry_run and hasattr(interface, "close"):
             interface.close()
