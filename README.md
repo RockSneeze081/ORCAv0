@@ -68,7 +68,7 @@ doesn't drift out of sync.
 - [x] Mesh routing logic (`mesh_bridge.py`) + alias management CLI
 - [x] FSK demodulation + clock recovery (`nunu_decoder.py`) — **validated only against its own synthetic signal (`tests/synth_nunu.py`), not real UV-K5 audio**
 - [x] Pipeline orchestration (`main.py`, offline + live modes) — offline path exercised end-to-end, live path unexercised (no audio device in dev/CI)
-- [x] Test suite (57 tests) + CI running it on every push
+- [x] Test suite (83 tests) + CI running it on every push
 - [x] Minimal web UI (`web.py`) — alias view + WAV-upload decode preview
 - [ ] End-to-end validation with real hardware — **the actual blocker**; `tests/samples/` has zero real captures. See [docs/architecture.md](docs/architecture.md) "Test strategy."
 

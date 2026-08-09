@@ -115,13 +115,28 @@ def record_audio(device_index, duration, gain=1.0):
     return audio
 
 
-def save_wav(audio, duration):
-    SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+def save_wav(audio, duration, samples_dir: Path = SAMPLES_DIR):
+    """Write `audio` as a 16-bit WAV into samples_dir, timestamped.
+
+    samples_dir defaults to the real tests/samples/ -- the one directory
+    meant to hold genuine hardware captures (still empty as of this
+    writing). Parameterized so a test can redirect it to a tmp_path
+    instead of writing synthetic test output into that same directory,
+    which would risk it being mistaken for a real capture later.
+    """
+    samples_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"nunu_capture_{ts}_{duration}s.wav"
-    filepath = SAMPLES_DIR / filename
+    filepath = samples_dir / filename
 
-    audio_int16 = (audio * 32767).astype(np.int16)
+    # record_audio() already clips to [-1, 1], but that's a convention at
+    # the caller, not a guarantee this function can rely on: float ->
+    # int16 casting doesn't clip, it wraps -- 2.0*32767 overflows int16
+    # and silently becomes -2, not a loud error or even a clipped
+    # (distorted-but-recognizable) 32767. Clipping here too makes this
+    # function safe regardless of what a future or direct caller passes.
+    clipped = np.clip(audio, -1.0, 1.0)
+    audio_int16 = (clipped * 32767).astype(np.int16)
     write_wav(str(filepath), SAMPLE_RATE, audio_int16)
     print(f"Saved: {filepath} ({len(audio) / SAMPLE_RATE:.1f}s, {SAMPLE_RATE} Hz, mono)")
     return filepath
