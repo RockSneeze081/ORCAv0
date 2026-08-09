@@ -85,6 +85,41 @@ def test_run_offline_decodes_and_routes(tmp_path):
     assert iface.sent == [("pota s5 activated", "!a1b2c3d4")]
 
 
+def test_run_offline_handles_stereo_wav(tmp_path):
+    """run_offline's `if audio.ndim > 1: audio = audio[:, 0]` -- every
+    other run_offline test is mono."""
+    from scipy.io.wavfile import write as write_wav
+
+    body = build_body(PacketType.MESSAGE, b"stereo offline test")
+    mono = synthesize_packet(body)
+    stereo_int16 = (np.clip(np.column_stack([mono, mono]), -1, 1) * 32767).astype(np.int16)
+    wav_path = tmp_path / "stereo.wav"
+    write_wav(str(wav_path), 44100, stereo_int16)
+    iface = FakeInterface()
+
+    count = main.run_offline(wav_path, iface, aliases={})
+
+    assert count == 1
+    assert iface.sent == [("stereo offline test", BROADCAST_ADDR)]
+
+
+def test_run_offline_handles_float32_wav(tmp_path):
+    """run_offline's else branch for non-integer dtype -- every other
+    run_offline test writes int16 PCM."""
+    from scipy.io.wavfile import write as write_wav
+
+    body = build_body(PacketType.MESSAGE, b"float32 offline test")
+    audio = np.clip(synthesize_packet(body), -1.0, 1.0)
+    wav_path = tmp_path / "float.wav"
+    write_wav(str(wav_path), 44100, audio)
+    iface = FakeInterface()
+
+    count = main.run_offline(wav_path, iface, aliases={})
+
+    assert count == 1
+    assert iface.sent == [("float32 offline test", BROADCAST_ADDR)]
+
+
 def test_run_offline_no_packets_in_pure_noise(tmp_path):
     from scipy.io.wavfile import write as write_wav
 
@@ -229,3 +264,43 @@ def test_drain_and_route_returns_zero_for_silence():
 
     assert routed == 0
     assert iface.sent == []
+
+
+def test_main_list_devices(monkeypatch, capsys):
+    fake_devices = [{"name": "Fake Mic", "max_input_channels": 1, "max_output_channels": 0, "default_samplerate": 44100.0}]
+    monkeypatch.setattr(sys, "argv", ["main.py", "--list-devices"])
+    monkeypatch.setattr("sounddevice.query_devices", lambda: fake_devices)
+
+    exit_code = main.main()
+
+    assert exit_code == 0
+    assert "Fake Mic" in capsys.readouterr().out
+
+
+def test_main_closes_interface_when_not_dry_run(monkeypatch, tmp_path):
+    """The finally block's `if not args.dry_run and hasattr(interface,
+    "close"): interface.close()` -- every other main() test uses
+    --dry-run, where this is a deliberate no-op (DryRunInterface has no
+    real connection to release). Patches build_interface rather than
+    actually connecting to hardware."""
+
+    class FakeRealInterface:
+        def __init__(self):
+            self.closed = False
+
+        def sendText(self, text, destinationId):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    fake_interface = FakeRealInterface()
+    wav_path = tmp_path / "x.wav"
+    _write_synthetic_wav(wav_path, "irrelevant")
+    monkeypatch.setattr(sys, "argv", ["main.py", "--input", str(wav_path), "--meshtastic", "/dev/fake"])
+    monkeypatch.setattr(main, "build_interface", lambda dry_run, connection: fake_interface)
+
+    exit_code = main.main()
+
+    assert exit_code == 0
+    assert fake_interface.closed is True

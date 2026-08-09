@@ -68,6 +68,18 @@ def test_route_message_broadcast():
     assert iface.sent == [("node1 online", BROADCAST_ADDR)]
 
 
+def test_route_message_defaults_to_loading_real_aliases_when_omitted():
+    """route_message's own `if aliases is None: aliases = load_aliases()`
+    path -- every other test passes aliases explicitly. Broadcast doesn't
+    consult the alias dict at all, so this is deterministic regardless of
+    what's actually in the real bridge/alias_store.json."""
+    iface = FakeInterface()
+
+    assert route_message("no explicit aliases arg", iface) is True
+
+    assert iface.sent == [("no explicit aliases arg", BROADCAST_ADDR)]
+
+
 def test_route_message_direct_via_alias():
     iface = FakeInterface()
     aliases = {"ea3jhl": "!a1b2c3d4"}

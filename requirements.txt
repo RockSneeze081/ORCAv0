@@ -6,3 +6,4 @@ meshtastic>=2.7
 pyserial>=3.5
 flask>=3.1
 pytest>=8.3
+coverage>=7.6

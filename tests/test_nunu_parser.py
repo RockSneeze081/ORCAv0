@@ -64,6 +64,26 @@ def test_payload_longer_than_max_rejected():
         build_body(PacketType.MESSAGE, b"x" * 31)
 
 
+def test_build_body_rejects_wrong_length_nonce():
+    with pytest.raises(ValueError):
+        build_body(PacketType.MESSAGE, b"hi", nonce=b"too short")
+
+
+def test_find_packets_skips_body_with_bad_header():
+    """find_packets' own except-ParseError-and-continue path, not just
+    parse_body raising directly -- a full-length body that sync search
+    finds but that doesn't parse shouldn't drop packets found elsewhere
+    in the same stream."""
+    bad_header_body = bytes([200]) + bytes(BODY_LEN - 1)  # 200 isn't a PacketType
+    good = build_body(PacketType.MESSAGE, b"still findable")
+    stream = SYNC_WORD + bad_header_body + SYNC_WORD + good
+
+    packets = find_packets(stream)
+
+    assert len(packets) == 1
+    assert packets[0].text() == "still findable"
+
+
 def test_ack_and_invalid_types_parse():
     ack = parse_body(build_body(PacketType.ACK, b""))
     assert ack.packet_type is PacketType.ACK

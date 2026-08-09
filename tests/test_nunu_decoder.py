@@ -39,6 +39,56 @@ def test_round_trip_two_packets_back_to_back():
     assert packets[1].packet_type is PacketType.ACK
 
 
+def test_decode_skips_sync_match_with_truncated_body():
+    """decode()'s own len(body_bits) != body_bit_len guard, not just
+    nunu_parser's -- a sync word found too close to the end of the
+    buffer to fit a full body must be skipped, not crash or return a
+    bogus short packet.
+
+    The overall buffer still has to clear MIN_FRAME_SAMPLES (a first
+    version of this test didn't, and ended up exercising that early
+    top-level guard instead of the one this test is actually about) --
+    caught by checking coverage, not by the test merely passing. Leading
+    silence pads total length past that floor while the *transmitted
+    signal itself* -- sync word plus a truncated body -- still doesn't
+    have enough bits remaining for a full body."""
+    from nunu_parser import BODY_LEN, SYNC_WORD
+    from synth_nunu import bits_to_audio, bytes_to_bits
+
+    body = build_body(PacketType.MESSAGE, b"never fully arrives")
+    frame = SYNC_WORD + body
+    bits = bytes_to_bits(frame)
+    full_audio = bits_to_audio(bits)
+
+    # Cut off partway through the body -- sync word is intact and
+    # findable, but there aren't enough samples left for BODY_LEN bytes.
+    sync_bits = len(SYNC_WORD) * 8
+    half_body_bits = (BODY_LEN * 8) // 2
+    samples_per_bit = 44100 / 1200
+    cutoff_sample = int((sync_bits + half_body_bits) * samples_per_bit)
+    truncated_signal = full_audio[:cutoff_sample]
+
+    leading_silence = np.zeros(MIN_FRAME_SAMPLES, dtype=np.float32)
+    truncated_audio = np.concatenate([leading_silence, truncated_signal])
+    assert len(truncated_audio) >= MIN_FRAME_SAMPLES
+
+    assert decode(truncated_audio) == []
+
+
+def test_decode_skips_sync_match_with_bad_header_byte():
+    """decode()'s own except ParseError: continue, not just
+    nunu_parser's -- a bit-perfect sync match whose body has an unknown
+    header byte must be skipped, not crash or propagate the ParseError."""
+    from nunu_parser import BODY_LEN, NONCE_LEN, PAYLOAD_LEN
+    from synth_nunu import synthesize_packet
+
+    bad_body = bytes([200]) + bytes(PAYLOAD_LEN) + bytes(NONCE_LEN)  # 200 isn't a PacketType
+    assert len(bad_body) == BODY_LEN
+    audio = synthesize_packet(bad_body)
+
+    assert decode(audio) == []
+
+
 def test_decode_ignores_pure_noise():
     import numpy as np
 

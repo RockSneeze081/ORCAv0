@@ -54,6 +54,21 @@ def test_upload_without_file_shows_error(client):
     assert b"choose a WAV file" in resp.data
 
 
+def test_upload_non_wav_file_shows_error_not_500(client):
+    """decode_upload()'s failure path -- unlike main.run_offline, it has
+    no RuntimeError wrapping of its own; the view's `except Exception`
+    is what's supposed to catch scipy failing to parse garbage as a WAV
+    and turn it into a page message instead of a 500."""
+    garbage = io.BytesIO(b"this is not a wav file, just some bytes")
+
+    resp = client.post(
+        "/", data={"wav": (garbage, "not_really.wav")}, content_type="multipart/form-data"
+    )
+
+    assert resp.status_code == 200
+    assert b"Error:" in resp.data
+
+
 def test_upload_broadcast_message_routes_ok(client):
     wav = _wav_bytes("cq cq de ea3jhl")
 
@@ -128,6 +143,77 @@ def test_upload_noise_finds_no_packets(client):
     )
 
     assert b"0 packet(s) found" in resp.data
+
+
+def test_upload_stereo_wav_uses_first_channel(client):
+    """_load_wav_as_float32's `if audio.ndim > 1: audio = audio[:, 0]` --
+    every other upload test is mono. Duplicates the mono signal into two
+    channels rather than asserting anything about channel-specific
+    content, since the decoder only ever sees channel 0 either way."""
+    body = build_body(PacketType.MESSAGE, b"stereo capture")
+    mono = synthesize_packet(body)
+    stereo = np.column_stack([mono, mono])
+    stereo_int16 = (np.clip(stereo, -1, 1) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    write_wav(buf, 44100, stereo_int16)
+    buf.seek(0)
+
+    resp = client.post(
+        "/", data={"wav": (buf, "stereo.wav")}, content_type="multipart/form-data"
+    )
+
+    assert b"1 packet(s) found" in resp.data
+    assert b"stereo capture" in resp.data
+
+
+def test_upload_float32_wav(client):
+    """_load_wav_as_float32's else branch (non-integer dtype) -- every
+    other upload test writes int16 PCM, the format capture.py actually
+    produces, but scipy can also read float32 WAVs and this function
+    claims to handle that case too."""
+    body = build_body(PacketType.MESSAGE, b"float32 capture")
+    audio = np.clip(synthesize_packet(body), -1.0, 1.0)
+    buf = io.BytesIO()
+    write_wav(buf, 44100, audio)  # float32 array -> scipy writes IEEE float WAV
+    buf.seek(0)
+
+    resp = client.post(
+        "/", data={"wav": (buf, "float.wav")}, content_type="multipart/form-data"
+    )
+
+    assert b"1 packet(s) found" in resp.data
+    assert b"float32 capture" in resp.data
+
+
+def test_upload_encrypted_packet_shows_dropped(client):
+    body = build_body(PacketType.ENCRYPTED_MESSAGE, b"ciphertext-ish-bytes")
+    audio = synthesize_packet(body)
+    audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    write_wav(buf, 44100, audio_int16)
+    buf.seek(0)
+
+    resp = client.post(
+        "/", data={"wav": (buf, "enc.wav")}, content_type="multipart/form-data"
+    )
+
+    assert b"dropped: encrypted" in resp.data
+    assert b"(encrypted)" in resp.data
+
+
+def test_upload_ack_packet_shows_dropped(client):
+    body = build_body(PacketType.ACK, b"")
+    audio = synthesize_packet(body)
+    audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    write_wav(buf, 44100, audio_int16)
+    buf.seek(0)
+
+    resp = client.post(
+        "/", data={"wav": (buf, "ack.wav")}, content_type="multipart/form-data"
+    )
+
+    assert b"dropped: ACK packet" in resp.data
 
 
 def test_decode_upload_function_directly():
