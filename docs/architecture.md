@@ -109,15 +109,28 @@ There is no real NUNU traffic to test against yet, so the whole test
 suite is synthetic: `tests/synth_nunu.py` encodes packets using the
 *same* PHY assumptions `nunu_decoder.py` decodes with. This proves
 internal self-consistency — the encoder and decoder agree with each
-other — and catches real implementation bugs (two were found and fixed
-this way: a Goertzel bin-quantization bug that made 1200 Hz and 1800 Hz
-indistinguishable at this baud rate, and a byte-alignment bug where sync
-search assumed bit 0 of the demodulated stream fell on a true 8-bit
-boundary of the original transmission). It does **not** prove any of the
-four PHY assumptions are correct, since the synthetic signal is
-generated from those same assumptions — a systematically wrong
-assumption would round-trip against itself just fine and still fail
-against a real UV-K5.
+other — and catches real implementation bugs (three were found and
+fixed this way: a Goertzel bin-quantization bug that made 1200 Hz and
+1800 Hz indistinguishable at this baud rate, a byte-alignment bug where
+sync search assumed bit 0 of the demodulated stream fell on a true
+8-bit boundary of the original transmission, and a crash on any audio
+buffer shorter than one frame). It does **not** prove any of the four
+PHY assumptions are correct, since the synthetic signal is generated
+from those same assumptions — a systematically wrong assumption would
+round-trip against itself just fine and still fail against a real
+UV-K5.
+
+The synthesizer was deliberately made harder rather than left at its
+first, simplest version: it originally reset each tone's phase to 0 at
+every bit boundary, which is easier to generate but unrealistic (a real
+oscillator's phase evolves continuously; only the instantaneous
+frequency switches). That made the self-test easier than real audio in
+a way that could hide a decoder bug relying on the idealization. Now
+`bits_to_audio` carries phase continuously across bit boundaries, and
+the full decoder test suite still passes unmodified — evidence (not
+proof) that the bit-slicing logic isn't fragile to that specific
+simplification, for whatever that's worth against the much bigger
+unknowns above.
 
 Closing that gap needs one real WAV capture with a known transmitted
 message. `decoder/capture.py` produces the WAV; `main.py --input

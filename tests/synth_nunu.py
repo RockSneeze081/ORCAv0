@@ -30,24 +30,36 @@ def bytes_to_bits(data: bytes) -> list[int]:
 
 
 def bits_to_audio(bits: list[int], fs: int = SAMPLE_RATE, baud: int = BAUD) -> np.ndarray:
-    """Render a bit list as FFSK audio: bit 0 -> MARK_HZ, bit 1 -> SPACE_HZ.
+    """Render a bit list as continuous-phase FFSK audio: bit 0 -> MARK_HZ,
+    bit 1 -> SPACE_HZ.
 
-    Each tone is phase-continuous within its own bit (a fresh sine
-    starting at phase 0), which is the simplest possible encoder -- not
-    necessarily what a real synthesizer chip does (continuous-phase FSK
-    would carry phase across bit boundaries instead). Good enough for
-    exercising the decoder's bit slicing; not a claim about real hardware.
+    Phase carries across bit boundaries -- only the instantaneous
+    frequency switches, never the phase itself. This used to reset phase
+    to 0 at the start of every bit instead, which is the easier signal to
+    generate but not a realistic one: a real oscillator (the BK4819's FSK
+    synthesizer included) doesn't snap its phase to zero on every symbol,
+    it continuously varies frequency while phase evolves smoothly. That
+    made the previous version of this self-test easier than the real
+    thing in a way that could have hidden a decoder bug -- every bit
+    handed the decoder a window starting at a clean zero-crossing, a
+    property real audio won't have. Switching to continuous-phase is
+    strictly harder for the decoder; it still passes (see
+    test_nunu_decoder.py), which is better evidence than the old version
+    gave that the bit-slicing logic isn't relying on that idealization.
     """
     samples_per_bit = fs / baud
     cursor = 0.0
+    phase = 0.0
     chunks = []
     for bit in bits:
         start = int(round(cursor))
         end = int(round(cursor + samples_per_bit))
         n = end - start
         freq = SPACE_HZ if bit else MARK_HZ
-        t = np.arange(n) / fs
-        chunks.append(np.sin(2 * np.pi * freq * t))
+        omega = 2 * np.pi * freq / fs
+        phases = phase + omega * np.arange(n)
+        chunks.append(np.sin(phases))
+        phase = (phase + omega * n) % (2 * np.pi)
         cursor += samples_per_bit
     return np.concatenate(chunks).astype(np.float32)
 
